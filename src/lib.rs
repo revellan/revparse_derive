@@ -893,7 +893,7 @@ impl RevparseInt {
                 println!("{}", USAGE);
             }
             impl Revparse {
-                pub fn new(args: impl Iterator<Item = String>) -> Self {
+                pub fn custom_new(args: impl Iterator<Item = String>) -> Self {
                     let mut_rvp = MutRevparse {
                         #init_mut_struct_fields
                     };
@@ -906,6 +906,9 @@ impl RevparseInt {
                         #rvp_pos_args_field_init
                         #init_pub_struct_fields
                     }
+                }
+                pub fn new() -> Self {
+                    Self::custom_new(std::env::args())
                 }
                 #get_pos_args_function
             }
