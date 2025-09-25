@@ -674,6 +674,7 @@ impl RevparseInt {
                         exit(0);
                     } else if e_arg == "--" {
                         err_arg_does_not_exist("--");
+                        exit(1);
                     } else if e_arg.starts_with("--") {
                         match e_arg
                             .split_once('=')
