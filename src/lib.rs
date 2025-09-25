@@ -230,6 +230,7 @@ impl RevparseInt {
             min_pos_args,
             max_pos_args,
             infinite_pos_args,
+            exec_name,
             ..
         } = self;
         let decide_type = |x: &u64, field_name: Ident| {
@@ -386,7 +387,7 @@ impl RevparseInt {
             control_function = quote! {
                 fn check_pos(&self) {
                     if *self.min_pos_args.borrow() != 0 {
-                        print_usage();
+                        println!("{}\nTry '{} --help' for more information.", USAGE, #exec_name);
                         exit(1);
                     }
                 }
