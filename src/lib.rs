@@ -200,7 +200,7 @@ impl RevparseInt {
             .push_str("  -h, --help                display this help text and exit\n");
         for arg in &self.args {
             let mut length: usize; //28 chars between help_msg and the beginning of the line
-            let i = arg.long_name();
+            let i = arg.long_name().replace('_', "-");
             match arg.short_name() {
                 Some(sn) => {
                     self.help.push_str(format!("  -{}, --{}", sn, i).as_str());
@@ -446,7 +446,7 @@ impl RevparseInt {
                     NoShort { long, .. } | Neither { long, .. } => (long, None),
                     _ => panic!("{}", IMPOSSIBLE_ERROR),
                 };
-                let long_str = format!("--{}", long.to_string());
+                let long_str = format!("--{}", long.to_string().replace('_', "-"));
                 if let Some(short) = short {
                     quote! {
                         inner.hashmap_long.insert(#long_str, &mut_rvp.#long);
@@ -468,25 +468,25 @@ impl RevparseInt {
                 use ArgKind::*;
                 match i {
                     Both { long, short, .. } => {
-                        let long_str = format!("--{}", long.to_string());
+                        let long_str = format!("--{}", long.to_string().replace('_', "-"));
                         quote! {
                             #long: ArgVal { value: RefCell::new(None), kind: ArgKind::Short(#long_str, #short)},
                         }
                     },
                     NoVal { long, short, .. } => {
-                        let long_str = format!("--{}", long.to_string());
+                        let long_str = format!("--{}", long.to_string().replace('_', "-"));
                         quote! {
                             #long: ArgBool { value: RefCell::new(false), kind: ArgKind::Short(#long_str, #short)},
                         }
                     },
                     NoShort { long, .. } => {
-                        let long_str = format!("--{}", long.to_string());
+                        let long_str = format!("--{}", long.to_string().replace('_', "-"));
                         quote! {
                             #long: ArgVal { value: RefCell::new(None), kind: ArgKind::NoShort(#long_str)},
                         }
                     },
                     Neither { long, .. } => {
-                        let long_str = format!("--{}", long.to_string());
+                        let long_str = format!("--{}", long.to_string().replace('_', "-"));
                         quote! {
                             #long: ArgBool { value: RefCell::new(false), kind: ArgKind::NoShort(#long_str)},
                         }
