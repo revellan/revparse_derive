@@ -975,14 +975,10 @@ pub fn revparse(input: TokenStream) -> TokenStream {
     let revparse_int = parse_macro_input!(input as RevparseInt);
     let module = revparse_int.mk_module();
     let RevparseInt { mod_name, .. } = revparse_int;
-    let after_module = quote! {
-        use #mod_name::Revparse;
-    };
-    let final_tokenstream = quote! {
+    quote! {
         mod #mod_name {
             #module
         }
-        #after_module
-    };
-    final_tokenstream.into()
+    }
+    .into()
 }
