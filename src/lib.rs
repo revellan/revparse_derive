@@ -279,7 +279,7 @@ impl RevparseInt {
         let min_pos_args_field = decide_type(min_pos_args, min_ident.clone());
         let max_pos_args_field = decide_type(max_pos_args, max_ident.clone());
         let raw_add = quote! {
-            self.pos_args.borrow_mut().as_mut().expect("impossible").push(arg);
+            self.pos_args.borrow_mut().as_mut().unwrap().push(arg);
         };
         let pos_struct_field = quote! {
             pos_args: RefCell<Option<Vec<String>>>,
@@ -569,7 +569,7 @@ impl RevparseInt {
             add_pos_internal = main_function;
             get_pos_args_function = quote! {
                 pub fn get_pos_args(&mut self) -> Vec<String> {
-                    self._pos_args.take().unwrap_or(Vec::new())
+                    self._pos_args.take().unwrap_or_else(|| panic!("get_pos_args() was called before and moved the Vec<String>. Consider binding it to a variable."))
                 }
             };
             rvp_pos_args_field_init = quote! {
@@ -585,6 +585,7 @@ impl RevparseInt {
                     if let Some((arg_struct, _)) = next_is_val.take() {
                         (*arg_struct).insert(e_arg);
                     } else if next_is_pos {
+                        next_is_pos = false;
                         inner.add_pos_internal(e_arg);
                     } else if e_arg == "--help" || e_arg == "-h" {
                         print_help();
