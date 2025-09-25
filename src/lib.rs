@@ -1,10 +1,7 @@
-use std::num::NonZeroIsize;
-
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::token::Ne;
 use syn::{
     Ident, LitBool, LitChar, LitInt, LitStr, Token, bracketed,
     ext::IdentExt,
@@ -238,19 +235,19 @@ impl RevparseInt {
         let decide_type = |x: &u64, field_name: Ident| {
             if *x <= std::u8::MAX as u64 {
                 quote! {
-                    #field_name: u8,
+                    #field_name: RefCell<u8>,
                 }
             } else if *x <= std::u16::MAX as u64 {
                 quote! {
-                    #field_name: u16,
+                    #field_name: RefCell<u16>,
                 }
             } else if *x <= std::u32::MAX as u64 {
                 quote! {
-                    #field_name: u32,
+                    #field_name: RefCell<u32>,
                 }
             } else {
                 quote! {
-                    #field_name: u64,
+                    #field_name: RefCell<u64>,
                 }
             }
         };
@@ -258,22 +255,22 @@ impl RevparseInt {
             if *x <= std::u8::MAX as u64 {
                 let num = *x as u8;
                 quote! {
-                    #field_name: #num,
+                    #field_name: RefCell::new(#num),
                 }
             } else if *x <= std::u16::MAX as u64 {
                 let num = *x as u16;
                 quote! {
-                    #field_name: #num,
+                    #field_name: RefCell::new(#num),
                 }
             } else if *x <= std::u32::MAX as u64 {
                 let num = *x as u32;
                 quote! {
-                    #field_name: #num,
+                    #field_name: RefCell::new(#num),
                 }
             } else {
                 let num = *x;
                 quote! {
-                    #field_name: #num,
+                    #field_name: RefCell::new(#num),
                 }
             }
         };
@@ -282,13 +279,13 @@ impl RevparseInt {
         let min_pos_args_field = decide_type(min_pos_args, min_ident.clone());
         let max_pos_args_field = decide_type(max_pos_args, max_ident.clone());
         let raw_add = quote! {
-            self.pos_args.push(arg);
+            self.pos_args.borrow_mut().as_mut().expect("impossible").push(arg);
         };
         let pos_struct_field = quote! {
-            pos_args: Vec<String>,
+            pos_args: RefCell<Option<Vec<String>>>,
         };
         let pos_init = quote! {
-            pos_args: Vec::new(),
+            pos_args: RefCell::new(Some(Vec::new())),
         };
         let min_init = init_number_as_lowest_type(min_pos_args, min_ident);
         let max_init = init_number_as_lowest_type(max_pos_args, max_ident);
@@ -298,7 +295,7 @@ impl RevparseInt {
         let control_function;
         if *infinite_pos_args && *min_pos_args == 0 {
             main_function = quote! {
-                fn add_pos_internal(&mut self, arg: String) {
+                fn add_pos_internal(&self, arg: String) {
                     #raw_add
                 }
             };
@@ -315,9 +312,9 @@ impl RevparseInt {
             };
         } else if *infinite_pos_args {
             main_function = quote! {
-                fn add_pos_internal(&mut self, arg: String) {
-                    if self.min_pos_args != 0 {
-                        self.min_pos_args -= 1;
+                fn add_pos_internal(&self, arg: String) {
+                    if *self.min_pos_args.borrow() != 0 {
+                        *self.min_pos_args.borrow_mut() -= 1;
                     }
                     #raw_add
                 }
@@ -332,7 +329,7 @@ impl RevparseInt {
             };
             control_function = quote! {
                 fn check_pos(&self) {
-                    if self.min_pos_args != 0 {
+                    if *self.min_pos_args.borrow() != 0 {
                         print_usage();
                         exit(1);
                     }
@@ -340,12 +337,12 @@ impl RevparseInt {
             };
         } else if *min_pos_args == 0 {
             main_function = quote! {
-                fn add_pos_internal(&mut self, arg: String) {
-                    if self.max_pos_args == 0 {
+                fn add_pos_internal(&self, arg: String) {
+                    if *self.max_pos_args.borrow() == 0 {
                         err_extra_operand(&arg);
                         exit(1);
                     }
-                    self.max_pos_args -= 1;
+                    *self.max_pos_args.borrow_mut() -= 1;
                     #raw_add
                 }
             };
@@ -364,14 +361,14 @@ impl RevparseInt {
             }
         } else {
             main_function = quote! {
-                fn add_pos_internal(&mut self, arg: String) {
-                    if self.max_pos_args == 0 {
+                fn add_pos_internal(&self, arg: String) {
+                    if *self.max_pos_args.borrow() == 0 {
                         err_extra_operand(&arg);
                         exit(1);
                     }
-                    self.max_pos_args -= 1;
-                    if self.min_pos_args != 0 {
-                        self.min_pos_args -= 1;
+                    *self.max_pos_args.borrow_mut() -= 1;
+                    if *self.min_pos_args.borrow() != 0 {
+                        *self.min_pos_args.borrow_mut() -= 1;
                     }
                     #raw_add
                 }
@@ -388,7 +385,7 @@ impl RevparseInt {
             };
             control_function = quote! {
                 fn check_pos(&self) {
-                    if self.min_pos_args != 0 {
+                    if *self.min_pos_args.borrow() != 0 {
                         print_usage();
                         exit(1);
                     }
@@ -421,12 +418,12 @@ impl RevparseInt {
         };
         quote! {
             hashmap_long: HashMap<&'static str, &'a dyn Argument>,
-            hashmap_short: HashMap<char, &'a mut Argument>,
+            hashmap_short: HashMap<char, &'a dyn Argument>,
             #dec_fields
         }
     }
     fn init_inner_struct_fields(&self, init_pos_fields: Option<TokenStream2>) -> TokenStream2 {
-        let init_fields = match init_pos_fields {
+        match init_pos_fields {
             Some(tokens) => quote! {
                 hashmap_long: HashMap::new(),
                 hashmap_short: HashMap::new(),
@@ -436,8 +433,7 @@ impl RevparseInt {
                 hashmap_long: HashMap::new(),
                 hashmap_short: HashMap::new(),
             },
-        };
-        init_fields
+        }
     }
     fn init_hashmap(&self) -> TokenStream2 {
         (&self)
@@ -508,12 +504,12 @@ impl RevparseInt {
                 match i {
                     Both { long, .. } | NoShort { long, .. } => {
                         quote! {
-                            #long: Option<String>,
+                            pub #long: Option<String>,
                         }
                     }
                     NoVal { long, .. } | Neither { long, .. } => {
                         quote! {
-                            #long: bool,
+                            pub #long: bool,
                         }
                     }
                     _ => panic!("{}", IMPOSSIBLE_ERROR),
@@ -529,12 +525,12 @@ impl RevparseInt {
                 match i {
                     Both { long, .. } | NoShort { long, .. } => {
                         quote! {
-                            #long: mut_rvp.#long.borrow_mut().take(),
+                            #long: mut_rvp.#long.value.borrow_mut().take(),
                         }
                     }
                     NoVal { long, .. } | Neither { long, .. } => {
                         quote! {
-                            #long: *mut_rvp.#long.borrow(),
+                            #long: *mut_rvp.#long.value.borrow(),
                         }
                     }
                     _ => panic!("{}", IMPOSSIBLE_ERROR),
@@ -561,6 +557,9 @@ impl RevparseInt {
         let init_hashmap = self.init_hashmap();
         let add_pos_internal;
         let parser_logic;
+        let get_pos_args_function;
+        let rvp_pos_args_field_init;
+        let rvp_pos_args_field_dec;
         if positional_logic {
             let (main_function, declare_fields, init_fields, control_function) =
                 self.mk_add_pos_internal();
@@ -568,12 +567,23 @@ impl RevparseInt {
             init_inner_struct_fields = self.init_inner_struct_fields(Some(init_fields));
             pos_control_function = control_function;
             add_pos_internal = main_function;
+            get_pos_args_function = quote! {
+                pub fn get_pos_args(&mut self) -> Vec<String> {
+                    self._pos_args.take().unwrap_or(Vec::new())
+                }
+            };
+            rvp_pos_args_field_init = quote! {
+                _pos_args: inner.pos_args.borrow_mut().take(),
+            };
+            rvp_pos_args_field_dec = quote! {
+                _pos_args: Option<Vec<String>>,
+            };
             parser_logic = quote! {
-                let mut next_is_val: Option<(&dyn Argument>, bool)> = None;
+                let mut next_is_val: Option<(&dyn Argument, bool)> = None;
                 let mut next_is_pos = false;
                 for e_arg in args.skip(1) {
-                    if let Some((refcell, _)) = next_is_val.take() {
-                        refcell.borrow_mut().insert(e_arg);
+                    if let Some((arg_struct, _)) = next_is_val.take() {
+                        (*arg_struct).insert(e_arg);
                     } else if next_is_pos {
                         inner.add_pos_internal(e_arg);
                     } else if e_arg == "--help" || e_arg == "-h" {
@@ -587,20 +597,20 @@ impl RevparseInt {
                             .map(|(arg_name, val)| (arg_name, val.to_string()))
                         {
                             Some((arg_name, val)) => {
-                                let refcell = inner.get_str(&arg_name);
-                                if refcell.borrow().take_val() {
-                                    refcell.borrow_mut().insert(val);
+                                let arg_struct = inner.get_str(&arg_name);
+                                if (*arg_struct).take_val() {
+                                    (*arg_struct).insert(val);
                                 } else {
                                     err_no_val_allowed(&arg_name);
                                     exit(1);
                                 }
                             },
                             None => {
-                                let refcell = inner.get_str(&e_arg);
-                                if refcell.borrow().take_val() {
-                                    next_is_val = Some(refcell);
+                                let arg_struct = inner.get_str(&e_arg);
+                                if (*arg_struct).take_val() {
+                                    next_is_val = Some((arg_struct, true));
                                 } else {
-                                    refcell.borrow_mut().was_called();
+                                    (*arg_struct).was_called();
                                 }
                             },
                         }
@@ -615,32 +625,31 @@ impl RevparseInt {
                                     print_help();
                                     exit(0);
                                 }
-                                let refcell = inner.get_char(e_char);
-                                if refcell.borrow().take_val() {
-                                    rest_is_val = Some(refcell);
+                                let arg_struct = inner.get_char(e_char);
+                                if (*arg_struct).take_val() {
+                                    rest_is_val = Some(arg_struct);
                                 } else {
-                                    refcell.borrow_mut().was_called();
+                                    (*arg_struct).was_called();
                                 }
                             }
                         }
-                        if let Some(refcell) = rest_is_val.take() {
+                        if let Some(arg_struct) = rest_is_val.take() {
                             if value.len() == 0 {
-                                next_is_val = Some(refcell, false);
+                                next_is_val = Some((arg_struct, false));
                             } else {
-                                refcell.borrow_mut().insert(value);
+                                (*arg_struct).insert(value);
                             }
                         }
-                    }
-                    else {
+                    } else {
                         inner.add_pos_internal(e_arg);
                     }
                 }
-                if let Some(refcell, is_long) = next_is_val.take() {
+                if let Some((arg_struct, is_long)) = next_is_val.take() {
                     if is_long {
-                        err_opt_requires_arg(refcell.borrow().long());
+                        err_opt_requires_arg((*arg_struct).long());
                         exit(1);
                     } else {
-                        err_short_opt_requires_arg(refcell.borrow().short());
+                        err_short_opt_requires_arg((*arg_struct).short());
                         exit(1);
                     }
                 }
@@ -649,13 +658,16 @@ impl RevparseInt {
         } else {
             dec_inner_struct_fields = self.dec_inner_struct_fields(None);
             init_inner_struct_fields = self.init_inner_struct_fields(None);
+            get_pos_args_function = TokenStream2::new();
             pos_control_function = TokenStream2::new();
             add_pos_internal = TokenStream2::new();
+            rvp_pos_args_field_init = TokenStream2::new();
+            rvp_pos_args_field_dec = TokenStream2::new();
             parser_logic = quote! {
                 let mut next_is_val: Option<(&dyn Argument, bool)> = None;
                 for e_arg in args.skip(1) {
-                    if let Some((refcell, _)) = next_is_val.take() {
-                        refcell.borrow_mut().insert(e_arg);
+                    if let Some((arg_struct, _)) = next_is_val.take() {
+                        (*arg_struct).insert(e_arg);
                     } else if e_arg == "--help" || e_arg == "-h" {
                         print_help();
                         exit(0);
@@ -667,20 +679,20 @@ impl RevparseInt {
                             .map(|(arg_name, val)| (arg_name, val.to_string()))
                         {
                             Some((arg_name, val)) => {
-                                let refcell = inner.get_str(&arg_name);
-                                if refcell.borrow().take_val() {
-                                    refcell.borrow_mut().insert(val);
+                                let arg_struct = inner.get_str(&arg_name);
+                                if (*arg_struct).take_val() {
+                                    (*arg_struct).insert(val);
                                 } else {
                                     err_no_val_allowed(&arg_name);
                                     exit(1);
                                 }
                             },
                             None => {
-                                let refcell = inner.get_str(&e_arg);
-                                if refcell.borrow().take_val() {
-                                    next_is_val = Some(refcell);
+                                let arg_struct = inner.get_str(&e_arg);
+                                if (*arg_struct).take_val() {
+                                    next_is_val = Some((arg_struct, true));
                                 } else {
-                                    refcell.borrow_mut().was_called();
+                                    (*arg_struct).was_called();
                                 }
                             },
                         }
@@ -695,45 +707,44 @@ impl RevparseInt {
                                     print_help();
                                     exit(0);
                                 }
-                                let refcell = inner.get_char(e_char);
-                                if refcell.borrow().take_val() {
-                                    rest_is_val = Some(refcell);
+                                let arg_struct = inner.get_char(e_char);
+                                if (*arg_struct).take_val() {
+                                    rest_is_val = Some(arg_struct);
                                 } else {
-                                    refcell.borrow_mut().was_called();
+                                    (*arg_struct).was_called();
                                 }
                             }
                         }
-                        if let Some(refcell) = rest_is_val.take() {
+                        if let Some(arg_struct) = rest_is_val.take() {
                             if value.len() == 0 {
-                                next_is_val = Some(refcell, false);
+                                next_is_val = Some((arg_struct, false));
                             } else {
-                                refcell.borrow_mut().insert(value);
+                                (*arg_struct).insert(value);
                             }
                         }
-                    }
-                    else {
+                    } else {
                         err_arg_does_not_exist(&e_arg);
                         exit(1);
                     }
                 }
-                if let Some(refcell, is_long) = next_is_val.take() {
+                if let Some((arg_struct, is_long)) = next_is_val.take() {
                     if is_long {
-                        err_opt_requires_arg(refcell.borrow().long());
+                        err_opt_requires_arg((*arg_struct).long());
                         exit(1);
                     } else {
-                        err_short_opt_requires_arg(refcell.borrow().short());
+                        err_short_opt_requires_arg((*arg_struct).short());
                         exit(1);
                     }
                 }
             };
         }
-        let whole_mod = quote! {
+        quote! {
             #[cfg(test)]
-            fn exit(code: u32) -> ! {
+            fn exit(code: i32) -> ! {
                 panic!("Exit code: {}", code);
             }
             #[cfg(not(test))]
-            fn exit(code: u32) -> ! {
+            fn exit(code: i32) -> ! {
                 std::process::exit(code);
             }
             fn err_arg_does_not_exist(arg: &str) {
@@ -796,16 +807,16 @@ impl RevparseInt {
             }
             use std::cell::RefCell;
             use std::collections::HashMap;
-            use std::rc::Rc;
             const USAGE: &str = #usage;
             const HELP: &str = #help;
-            pub struct Rvp {
+            pub struct Revparse {
+                #rvp_pos_args_field_dec
                 #dec_pub_struct_fields
             }
             struct Inner<'a> {
                 #dec_inner_struct_fields
             }
-            struct MutRvp {
+            struct MutRevparse {
                 #dec_mut_struct_fields
             }
             enum ArgKind {
@@ -822,8 +833,8 @@ impl RevparseInt {
             }
             trait Argument {
                 fn take_val(&self) -> bool;
-                fn insert(&mut self, arg: String);
-                fn was_called(&mut self);
+                fn insert(&self, arg: String);
+                fn was_called(&self);
                 fn long(&self) -> &str;
                 fn short(&self) -> char;
             }
@@ -831,10 +842,10 @@ impl RevparseInt {
                 fn take_val(&self) -> bool {
                     true
                 }
-                fn insert(&mut self, arg: String) {
-                    self.value = Some(arg);
+                fn insert(&self, arg: String) {
+                    *self.value.borrow_mut() = Some(arg);
                 }
-                fn was_called(&mut self) {
+                fn was_called(&self) {
                     panic!("impossible");
                 }
                 fn long(&self) -> &str {
@@ -855,11 +866,11 @@ impl RevparseInt {
                 fn take_val(&self) -> bool {
                     false
                 }
-                fn insert(&mut self, arg: String) {
+                fn insert(&self, _: String) {
                     panic!("impossible");
                 }
-                fn was_called(&mut self) {
-                    self.value = true;
+                fn was_called(&self) {
+                    *self.value.borrow_mut() = true;
                 }
                 fn long(&self) -> &str {
                     use ArgKind::*;
@@ -881,27 +892,29 @@ impl RevparseInt {
             pub fn print_usage() {
                 println!("{}", USAGE);
             }
-            impl Rvp {
+            impl Revparse {
                 pub fn new(args: impl Iterator<Item = String>) -> Self {
-                    let mut mut_rvp = MutRvp {
+                    let mut_rvp = MutRevparse {
                         #init_mut_struct_fields
-                    }
+                    };
                     let mut inner = Inner {
                         #init_inner_struct_fields
                     };
                     #init_hashmap
                     #parser_logic
                     Self {
+                        #rvp_pos_args_field_init
                         #init_pub_struct_fields
                     }
                 }
+                #get_pos_args_function
             }
             impl Inner<'_> {
                 #pos_control_function
                 #add_pos_internal
                 fn get_str(&self, string: &str) -> &dyn Argument {
                     match self.hashmap_long.get(string) {
-                        Some(ref_cell) => ref_cell,
+                        Some(arg_struct) => *arg_struct,
                         None => {
                             err_arg_does_not_exist(string);
                             exit(1);
@@ -909,8 +922,8 @@ impl RevparseInt {
                     }
                 }
                 fn get_char(&self, ch: char) -> &dyn Argument {
-                    match self.hashmap_short.get(ch) {
-                        Some(ref_cell) => ref_cell,
+                    match self.hashmap_short.get(&ch) {
+                        Some(arg_struct) => *arg_struct,
                         None => {
                             err_short_arg_does_not_exist(ch);
                             exit(1);
@@ -918,8 +931,7 @@ impl RevparseInt {
                     }
                 }
             }
-        };
-        whole_mod
+        }
     }
 }
 impl Parse for RevparseInt {
@@ -964,7 +976,7 @@ pub fn revparse(input: TokenStream) -> TokenStream {
     let module = revparse_int.mk_module();
     let RevparseInt { mod_name, .. } = revparse_int;
     let after_module = quote! {
-        use #mod_name::Rvp;
+        use #mod_name::Revparse;
     };
     let final_tokenstream = quote! {
         mod #mod_name {
