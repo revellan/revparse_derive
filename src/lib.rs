@@ -1,7 +1,10 @@
+use std::num::NonZeroIsize;
+
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
+use syn::token::Ne;
 use syn::{
     Ident, LitBool, LitChar, LitInt, LitStr, Token, bracketed,
     ext::IdentExt,
@@ -251,10 +254,33 @@ impl RevparseInt {
                 }
             }
         };
-        let min_pos_args_field =
-            decide_type(min_pos_args, Ident::new("min_pos_args", Span::call_site()));
-        let max_pos_args_field =
-            decide_type(max_pos_args, Ident::new("max_pos_args", Span::call_site()));
+        let init_number_as_lowest_type = |x: &u64, field_name: Ident| {
+            if *x <= std::u8::MAX as u64 {
+                let num = *x as u8;
+                quote! {
+                    #field_name: #num,
+                }
+            } else if *x <= std::u16::MAX as u64 {
+                let num = *x as u16;
+                quote! {
+                    #field_name: #num,
+                }
+            } else if *x <= std::u32::MAX as u64 {
+                let num = *x as u32;
+                quote! {
+                    #field_name: #num,
+                }
+            } else {
+                let num = *x;
+                quote! {
+                    #field_name: #num,
+                }
+            }
+        };
+        let min_ident = Ident::new("min_pos_args", Span::call_site());
+        let max_ident = Ident::new("max_pos_args", Span::call_site());
+        let min_pos_args_field = decide_type(min_pos_args, min_ident.clone());
+        let max_pos_args_field = decide_type(max_pos_args, max_ident.clone());
         let raw_add = quote! {
             self.pos_args.push(arg);
         };
@@ -264,12 +290,8 @@ impl RevparseInt {
         let pos_init = quote! {
             pos_args: Vec::new(),
         };
-        let min_init = quote! {
-            min_pos_args: #min_pos_args,
-        };
-        let max_init = quote! {
-            max_pos_args: #max_pos_args,
-        };
+        let min_init = init_number_as_lowest_type(min_pos_args, min_ident);
+        let max_init = init_number_as_lowest_type(max_pos_args, max_ident);
         let main_function;
         let declare_fields;
         let init_fields;
@@ -375,7 +397,7 @@ impl RevparseInt {
         }
         (main_function, declare_fields, init_fields, control_function)
     }
-    fn dec_pub_struct_fields(&self) -> TokenStream2 {
+    fn dec_mut_struct_fields(&self) -> TokenStream2 {
         self.args
             .iter()
             .map(|flag| {
@@ -394,16 +416,12 @@ impl RevparseInt {
     }
     fn dec_inner_struct_fields(&self, dec_pos_fields: Option<TokenStream2>) -> TokenStream2 {
         let dec_fields = match dec_pos_fields {
-            Some(fields) => {
-                quote! {
-                    #fields
-                }
-            }
+            Some(fields) => quote! {#fields},
             None => TokenStream2::new(),
         };
         quote! {
-            hashmap_long: HashMap<&'static str, RefCell<dyn Argument>>,
-            hashmap_short: HashMap<char, RefCell<dyn Argument>>,
+            hashmap_long: HashMap<&'static str, &'a dyn Argument>,
+            hashmap_short: HashMap<char, &'a mut Argument>,
             #dec_fields
         }
     }
@@ -435,18 +453,18 @@ impl RevparseInt {
                 let long_str = format!("--{}", long.to_string());
                 if let Some(short) = short {
                     quote! {
-                        inner.hashmap_long.insert(#long_str, &mut parser.#long);
-                        inner.hashmap_short.insert(#short, &mut parser.#long)
+                        inner.hashmap_long.insert(#long_str, &mut_rvp.#long);
+                        inner.hashmap_short.insert(#short, &mut_rvp.#long);
                     }
                 } else {
                     quote! {
-                        inner.hashmap_long.insert(#long_str, &mut parser.#long);
+                        inner.hashmap_long.insert(#long_str, &mut_rvp.#long);
                     }
                 }
             })
             .collect()
     }
-    fn init_pub_struct_fields(&self) -> TokenStream2 {
+    fn init_mut_struct_fields(&self) -> TokenStream2 {
         (&self)
             .args
             .iter()
@@ -456,25 +474,67 @@ impl RevparseInt {
                     Both { long, short, .. } => {
                         let long_str = format!("--{}", long.to_string());
                         quote! {
-                            #long: ArgVal { value: None, kind: ArgKind::Short(#long_str, #short)},
+                            #long: ArgVal { value: RefCell::new(None), kind: ArgKind::Short(#long_str, #short)},
                         }
-                    }
+                    },
                     NoVal { long, short, .. } => {
                         let long_str = format!("--{}", long.to_string());
                         quote! {
-                            #long: ArgBool { value: false, kind: ArgKind::Short(#long_str, #short)},
+                            #long: ArgBool { value: RefCell::new(false), kind: ArgKind::Short(#long_str, #short)},
                         }
-                    }
+                    },
                     NoShort { long, .. } => {
                         let long_str = format!("--{}", long.to_string());
                         quote! {
-                            #long: ArgVal { value: None, kind: ArgKind::NoShort(#long_str)},
+                            #long: ArgVal { value: RefCell::new(None), kind: ArgKind::NoShort(#long_str)},
                         }
-                    }
+                    },
                     Neither { long, .. } => {
                         let long_str = format!("--{}", long.to_string());
                         quote! {
-                            #long: ArgBool { value: false, kind: ArgKind::NoShort(#long_str)},
+                            #long: ArgBool { value: RefCell::new(false), kind: ArgKind::NoShort(#long_str)},
+                        }
+                    },
+                    _ => panic!("{}", IMPOSSIBLE_ERROR),
+                }
+            })
+            .collect()
+    }
+    fn dec_pub_struct_fields(&self) -> TokenStream2 {
+        self.args
+            .iter()
+            .map(|i| {
+                use ArgKind::*;
+                match i {
+                    Both { long, .. } | NoShort { long, .. } => {
+                        quote! {
+                            #long: Option<String>,
+                        }
+                    }
+                    NoVal { long, .. } | Neither { long, .. } => {
+                        quote! {
+                            #long: bool,
+                        }
+                    }
+                    _ => panic!("{}", IMPOSSIBLE_ERROR),
+                }
+            })
+            .collect()
+    }
+    fn init_pub_struct_fields(&self) -> TokenStream2 {
+        self.args
+            .iter()
+            .map(|i| {
+                use ArgKind::*;
+                match i {
+                    Both { long, .. } | NoShort { long, .. } => {
+                        quote! {
+                            #long: mut_rvp.#long.borrow_mut().take(),
+                        }
+                    }
+                    NoVal { long, .. } | Neither { long, .. } => {
+                        quote! {
+                            #long: *mut_rvp.#long.borrow(),
                         }
                     }
                     _ => panic!("{}", IMPOSSIBLE_ERROR),
@@ -485,7 +545,14 @@ impl RevparseInt {
     fn mk_module(&self) -> TokenStream2 {
         let positional_logic =
             self.pres_pos_args.len() != 0 || self.custom_max_pos_args || self.infinite_pos_args;
-        let RevparseInt { help, usage, .. } = self;
+        let RevparseInt {
+            help,
+            usage,
+            exec_name,
+            ..
+        } = self;
+        let dec_mut_struct_fields = self.dec_mut_struct_fields();
+        let init_mut_struct_fields = self.init_mut_struct_fields();
         let dec_pub_struct_fields = self.dec_pub_struct_fields();
         let init_pub_struct_fields = self.init_pub_struct_fields();
         let dec_inner_struct_fields;
@@ -494,55 +561,6 @@ impl RevparseInt {
         let init_hashmap = self.init_hashmap();
         let add_pos_internal;
         let parser_logic;
-        let parser_boilerplate = quote! {
-            // THERE IS SOME NON BOILERPLATE CODE IN HERE, GET IT OUT!!!
-            else if e_arg.starts_with("--") {
-                match e_arg
-                    .split_once('=')
-                    .map(|(arg_name, val)| (arg_name, val.to_string()))
-                {
-                    Some((arg_name, val)) => {
-                        let refcell = inner.get_str(arg_name);
-                        if refcell.borrow().take_val() {
-                            refcell.borrow_mut().insert(val);
-                        } else {
-                            inner.err_no_val_allowed(&arg_name);
-                            exit(1);
-                        }
-                    },
-                    None => {
-                        let refcell = inner.get_str(e_arg);
-                        if refcell.borrow().take_val() {
-                            next_is_val = Some(refcell);
-                        } else {
-                            refcell.borrow_mut().was_called();
-                        }
-                    },
-                }
-            } else if e_arg.starts_with('-') {
-                let mut rest_is_val: Option<Refcell<dyn Argument>> = None;
-                let mut value = String::new();
-                'chars: for e_char in e_arg.chars().skip(1) {
-                    if rest_is_val.is_some() {
-                        value.push(e_char);
-                    } else {
-                        let refcell = inner.get_char(e_char);
-                        if refcell.borrow().take_val() {
-                            rest_is_val = Some(refcell);
-                        } else {
-                            refcell.borrow_mut().was_called();
-                        }
-                    }
-                }
-                if let Some(refcell) = rest_is_val.take() {
-                    if value.len() == 0 {
-                        next_is_val = Some(refcell, false);
-                    } else {
-                        refcell.borrow_mut().insert(value);
-                    }
-                }
-            } 
-        };
         if positional_logic {
             let (main_function, declare_fields, init_fields, control_function) =
                 self.mk_add_pos_internal();
@@ -551,9 +569,9 @@ impl RevparseInt {
             pos_control_function = control_function;
             add_pos_internal = main_function;
             parser_logic = quote! {
-                let mut next_is_val: Option<(RefCell<dyn Argument>, bool)> = None;
+                let mut next_is_val: Option<(&dyn Argument>, bool)> = None;
                 let mut next_is_pos = false;
-                'outer for e_arg in args.skip(1) {
+                for e_arg in args.skip(1) {
                     if let Some((refcell, _)) = next_is_val.take() {
                         refcell.borrow_mut().insert(e_arg);
                     } else if next_is_pos {
@@ -563,8 +581,56 @@ impl RevparseInt {
                         exit(0);
                     } else if e_arg == "--" {
                         next_is_pos = true;
+                    } else if e_arg.starts_with("--") {
+                        match e_arg
+                            .split_once('=')
+                            .map(|(arg_name, val)| (arg_name, val.to_string()))
+                        {
+                            Some((arg_name, val)) => {
+                                let refcell = inner.get_str(&arg_name);
+                                if refcell.borrow().take_val() {
+                                    refcell.borrow_mut().insert(val);
+                                } else {
+                                    err_no_val_allowed(&arg_name);
+                                    exit(1);
+                                }
+                            },
+                            None => {
+                                let refcell = inner.get_str(&e_arg);
+                                if refcell.borrow().take_val() {
+                                    next_is_val = Some(refcell);
+                                } else {
+                                    refcell.borrow_mut().was_called();
+                                }
+                            },
+                        }
+                    } else if e_arg.starts_with('-') {
+                        let mut rest_is_val: Option<&dyn Argument> = None;
+                        let mut value = String::new();
+                        for e_char in e_arg.chars().skip(1) {
+                            if rest_is_val.is_some() {
+                                value.push(e_char);
+                            } else {
+                                if e_char == 'h' {
+                                    print_help();
+                                    exit(0);
+                                }
+                                let refcell = inner.get_char(e_char);
+                                if refcell.borrow().take_val() {
+                                    rest_is_val = Some(refcell);
+                                } else {
+                                    refcell.borrow_mut().was_called();
+                                }
+                            }
+                        }
+                        if let Some(refcell) = rest_is_val.take() {
+                            if value.len() == 0 {
+                                next_is_val = Some(refcell, false);
+                            } else {
+                                refcell.borrow_mut().insert(value);
+                            }
+                        }
                     }
-                    #parser_boilerplate
                     else {
                         inner.add_pos_internal(e_arg);
                     }
@@ -586,19 +652,68 @@ impl RevparseInt {
             pos_control_function = TokenStream2::new();
             add_pos_internal = TokenStream2::new();
             parser_logic = quote! {
-                let mut next_is_val: Option<(RefCell<dyn Argument>, bool)> = None;
-                'outer for e_arg in args.skip(1) {
-                    if let Some(refcell) = next_is_val.take() {
+                let mut next_is_val: Option<(&dyn Argument, bool)> = None;
+                for e_arg in args.skip(1) {
+                    if let Some((refcell, _)) = next_is_val.take() {
                         refcell.borrow_mut().insert(e_arg);
                     } else if e_arg == "--help" || e_arg == "-h" {
                         print_help();
                         exit(0);
                     } else if e_arg == "--" {
-                        next_is_pos = true;
+                        err_arg_does_not_exist("--");
+                    } else if e_arg.starts_with("--") {
+                        match e_arg
+                            .split_once('=')
+                            .map(|(arg_name, val)| (arg_name, val.to_string()))
+                        {
+                            Some((arg_name, val)) => {
+                                let refcell = inner.get_str(&arg_name);
+                                if refcell.borrow().take_val() {
+                                    refcell.borrow_mut().insert(val);
+                                } else {
+                                    err_no_val_allowed(&arg_name);
+                                    exit(1);
+                                }
+                            },
+                            None => {
+                                let refcell = inner.get_str(&e_arg);
+                                if refcell.borrow().take_val() {
+                                    next_is_val = Some(refcell);
+                                } else {
+                                    refcell.borrow_mut().was_called();
+                                }
+                            },
+                        }
+                    } else if e_arg.starts_with('-') {
+                        let mut rest_is_val: Option<&dyn Argument> = None;
+                        let mut value = String::new();
+                        for e_char in e_arg.chars().skip(1) {
+                            if rest_is_val.is_some() {
+                                value.push(e_char);
+                            } else {
+                                if e_char == 'h' {
+                                    print_help();
+                                    exit(0);
+                                }
+                                let refcell = inner.get_char(e_char);
+                                if refcell.borrow().take_val() {
+                                    rest_is_val = Some(refcell);
+                                } else {
+                                    refcell.borrow_mut().was_called();
+                                }
+                            }
+                        }
+                        if let Some(refcell) = rest_is_val.take() {
+                            if value.len() == 0 {
+                                next_is_val = Some(refcell, false);
+                            } else {
+                                refcell.borrow_mut().insert(value);
+                            }
+                        }
                     }
-                    #parser_boilerplate
                     else {
-                        inner.add_pos_internal(e_arg);
+                        err_arg_does_not_exist(&e_arg);
+                        exit(1);
                     }
                 }
                 if let Some(refcell, is_long) = next_is_val.take() {
@@ -613,26 +728,96 @@ impl RevparseInt {
             };
         }
         let whole_mod = quote! {
+            #[cfg(test)]
+            fn exit(code: u32) -> ! {
+                panic!("Exit code: {}", code);
+            }
+            #[cfg(not(test))]
+            fn exit(code: u32) -> ! {
+                std::process::exit(code);
+            }
+            fn err_arg_does_not_exist(arg: &str) {
+                if arg == "--help" {
+                    err_no_val_allowed(arg);
+                } else {
+                    eprintln!(
+                        "{}: unrecognized option '{}'\n{}\nTry '{} --help' for more information.",
+                        #exec_name,
+                        arg,
+                        USAGE,
+                        #exec_name
+                    );
+                }
+            }
+            fn err_short_arg_does_not_exist(ch: char) {
+                eprintln!(
+                    "{}: invalid option -- '{}'\n{}\nTry '{} --help' for more information.",
+                    #exec_name,
+                    ch,
+                    USAGE,
+                    #exec_name,
+                );
+            }
+            fn err_extra_operand(arg: &str) {
+                eprintln!(
+                    "{}: extra operand '{}'\n{}\nTry '{} --help' for more information.",
+                    #exec_name,
+                    arg,
+                    USAGE,
+                    #exec_name,
+                );
+            }
+            fn err_no_val_allowed(arg: &str) {
+                eprintln!(
+                    "{}: option '{}' doesn't allow an argument\n{}\nTry '{} --help' for more information.",
+                    #exec_name,
+                    arg,
+                    USAGE,
+                    #exec_name,
+                );
+            }
+            fn err_opt_requires_arg(arg: &str) {
+                eprintln!(
+                    "{}: option '{}' requires an argument\n{}\nTry '{} --help' for more information.",
+                    #exec_name,
+                    arg,
+                    USAGE,
+                    #exec_name,
+                );
+            }
+            fn err_short_opt_requires_arg(ch: char) {
+                eprintln!(
+                    "{}: option requires an argument -- '{}'\n{}\nTry '{} --help' for more information.",
+                    #exec_name,
+                    ch,
+                    USAGE,
+                    #exec_name,
+                );
+            }
             use std::cell::RefCell;
             use std::collections::HashMap;
+            use std::rc::Rc;
             const USAGE: &str = #usage;
             const HELP: &str = #help;
             pub struct Rvp {
                 #dec_pub_struct_fields
             }
-            struct Inner {
+            struct Inner<'a> {
                 #dec_inner_struct_fields
+            }
+            struct MutRvp {
+                #dec_mut_struct_fields
             }
             enum ArgKind {
                 Short(&'static str, char),
                 NoShort(&'static str),
             }
             pub struct ArgVal {
-                pub value: Option<String>,
+                pub value: RefCell<Option<String>>,
                 kind: ArgKind,
             }
             pub struct ArgBool {
-                pub value: bool,
+                pub value: RefCell<bool>,
                 kind: ArgKind,
             }
             trait Argument {
@@ -697,34 +882,37 @@ impl RevparseInt {
                 println!("{}", USAGE);
             }
             impl Rvp {
-                fn new(args: impl Iterator<Item = String>) -> Self {
-                    let mut parser = Self {
-                        #init_pub_struct_fields
-                    };
+                pub fn new(args: impl Iterator<Item = String>) -> Self {
+                    let mut mut_rvp = MutRvp {
+                        #init_mut_struct_fields
+                    }
                     let mut inner = Inner {
                         #init_inner_struct_fields
                     };
                     #init_hashmap
                     #parser_logic
+                    Self {
+                        #init_pub_struct_fields
+                    }
                 }
             }
-            impl Inner {
+            impl Inner<'_> {
                 #pos_control_function
                 #add_pos_internal
-                fn get_str(&self, string: &str) -> RefCell<dyn Argument> {
+                fn get_str(&self, string: &str) -> &dyn Argument {
                     match self.hashmap_long.get(string) {
                         Some(ref_cell) => ref_cell,
                         None => {
-                            self.err_arg_does_not_exist(string);
+                            err_arg_does_not_exist(string);
                             exit(1);
                         },
                     }
                 }
-                fn get_char(&self, ch: char) -> RefCell<dyn Arguments> {
+                fn get_char(&self, ch: char) -> &dyn Argument {
                     match self.hashmap_short.get(ch) {
                         Some(ref_cell) => ref_cell,
                         None => {
-                            self.err_short_arg_does_not_exist(ch);
+                            err_short_arg_does_not_exist(ch);
                             exit(1);
                         },
                     }
@@ -774,39 +962,7 @@ impl Parse for RevparseInt {
 pub fn revparse(input: TokenStream) -> TokenStream {
     let revparse_int = parse_macro_input!(input as RevparseInt);
     let module = revparse_int.mk_module();
-    let RevparseInt {
-        usage,
-        help,
-        min_pos_args,
-        max_pos_args,
-        pos_arg_help,
-        infinite_pos_args,
-        args,
-        pres_pos_args,
-        function_name,
-        mod_name,
-        ..
-    } = revparse_int;
-    let struct_fields: TokenStream2 = args
-        .iter()
-        .map(|x| {
-            use ArgKind::*;
-            match x {
-                Both { long, .. } | NoShort { long, .. } => {
-                    quote! {
-                        #long: Option<String>,
-                    }
-                }
-                NoVal { long, .. } | Neither { long, .. } => {
-                    quote! {
-                        #long: bool,
-                    }
-                }
-                _ => panic!("{}", IMPOSSIBLE_ERROR),
-            }
-        })
-        .collect();
-    let module = TokenStream2::new();
+    let RevparseInt { mod_name, .. } = revparse_int;
     let after_module = quote! {
         use #mod_name::Rvp;
     };
