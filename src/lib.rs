@@ -812,6 +812,7 @@ impl RevparseInt {
             use std::collections::HashMap;
             const USAGE: &str = #usage;
             const HELP: &str = #help;
+            #[derive(Debug)]
             pub struct Revparse {
                 #rvp_pos_args_field_dec
                 #dec_pub_struct_fields
