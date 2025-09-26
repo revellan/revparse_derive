@@ -606,6 +606,9 @@ impl RevparseInt {
                                 }
                             },
                         }
+                    } else if e_arg == "-" {
+                        err_arg_does_not_exist("-");
+                        exit(1);
                     } else if e_arg.starts_with('-') {
                         let mut rest_is_val: Option<&dyn Argument> = None;
                         let mut value = String::new();
@@ -689,6 +692,9 @@ impl RevparseInt {
                                 }
                             },
                         }
+                    } else if e_arg == "-" {
+                        err_arg_does_not_exist("-");
+                        exit(1);
                     } else if e_arg.starts_with('-') {
                         let mut rest_is_val: Option<&dyn Argument> = None;
                         let mut value = String::new();
