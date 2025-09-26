@@ -5,7 +5,6 @@ use quote::quote;
 use syn::{
     Ident, LitBool, LitChar, LitInt, LitStr, Token, bracketed,
     ext::IdentExt,
-    parenthesized,
     parse::{Parse, ParseStream, Result},
     parse_macro_input,
 };
@@ -17,7 +16,6 @@ enum ArgSetting {
     MinPos(LitInt),
     MaxPos(LitInt),
     InfinitePos(LitBool),
-    FunctionName(Ident),
     ModName(Ident),
 }
 enum ArgKind {
@@ -133,12 +131,6 @@ impl Parse for ArgKind {
                 "PosMax" => Ok(ArgSet(MaxPos(input.parse()?))),
                 "PosInfinite" => Ok(ArgSet(InfinitePos(input.parse()?))),
                 "PosHelp" => Ok(ArgSet(PosHelp(input.parse()?))),
-                "FunctionName" => {
-                    let function_name = Ok(ArgSet(FunctionName(input.parse()?)));
-                    let _content;
-                    parenthesized!(_content in input);
-                    function_name
-                }
                 "ModName" => Ok(ArgSet(ModName(input.parse()?))),
                 ident_str => Err(syn::Error::new(
                     ident.span(),
@@ -159,7 +151,6 @@ struct RevparseInt {
     infinite_pos_args: bool,
     args: Vec<ArgKind>,
     pres_pos_args: Vec<String>,
-    function_name: Ident,
     mod_name: Ident,
 }
 impl RevparseInt {
@@ -181,7 +172,6 @@ impl RevparseInt {
                 self.custom_max_pos_args = true;
             }
             InfinitePos(boolean) => self.infinite_pos_args = boolean.value(),
-            FunctionName(function_name) => self.function_name = function_name,
             ModName(mod_name) => self.mod_name = mod_name,
         }
     }
@@ -954,7 +944,6 @@ impl Parse for RevparseInt {
             infinite_pos_args: false,
             args: Vec::new(),
             pres_pos_args: Vec::new(),
-            function_name: Ident::new("revparse", Span::call_site()),
             mod_name: Ident::new("revmod", Span::call_site()),
         };
         loop {
