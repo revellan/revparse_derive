@@ -22,7 +22,7 @@ dependencies = [
 
 [[package]]
 name = "revparse_derive"
-version = "1.0.6"
+version = "1.0.7"
 dependencies = [
  "proc-macro2",
  "quote",

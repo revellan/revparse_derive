@@ -13,9 +13,9 @@ enum ArgSetting {
     ExecName(LitStr),
     Pos(LitStr),
     PosHelp(LitStr),
-    MinPos(LitInt),
-    MaxPos(LitInt),
-    InfinitePos(LitBool),
+    PosMin(LitInt),
+    PosMax(LitInt),
+    PosInfinite(LitBool),
     ModName(Ident),
 }
 enum ArgKind {
@@ -127,9 +127,9 @@ impl Parse for ArgKind {
             match ident.to_string().as_ref() {
                 "ExecName" => Ok(ArgSet(ExecName(input.parse()?))),
                 "Pos" => Ok(ArgSet(Pos(input.parse()?))),
-                "PosMin" => Ok(ArgSet(MinPos(input.parse()?))),
-                "PosMax" => Ok(ArgSet(MaxPos(input.parse()?))),
-                "PosInfinite" => Ok(ArgSet(InfinitePos(input.parse()?))),
+                "PosMin" => Ok(ArgSet(PosMin(input.parse()?))),
+                "PosMax" => Ok(ArgSet(PosMax(input.parse()?))),
+                "PosInfinite" => Ok(ArgSet(PosInfinite(input.parse()?))),
                 "PosHelp" => Ok(ArgSet(PosHelp(input.parse()?))),
                 "ModName" => Ok(ArgSet(ModName(input.parse()?))),
                 ident_str => Err(syn::Error::new(
@@ -160,18 +160,18 @@ impl RevparseInt {
             ExecName(name) => self.exec_name = name.value(),
             Pos(pos_arg) => self.pres_pos_args.push(pos_arg.value()),
             PosHelp(pos_help) => self.pos_arg_help = Some(pos_help.value()),
-            MinPos(min_pos) => {
+            PosMin(min_pos) => {
                 self.min_pos_args = min_pos
                     .base10_parse()
                     .expect("PosMin should be of type u64")
             }
-            MaxPos(max_pos) => {
+            PosMax(max_pos) => {
                 self.max_pos_args = max_pos
                     .base10_parse()
                     .expect("PosMin should be of type u64");
                 self.custom_max_pos_args = true;
             }
-            InfinitePos(boolean) => self.infinite_pos_args = boolean.value(),
+            PosInfinite(boolean) => self.infinite_pos_args = boolean.value(),
             ModName(mod_name) => self.mod_name = mod_name,
         }
     }
