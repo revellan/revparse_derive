@@ -1,6 +1,6 @@
 [package]
 name = "revparse_derive"
-version = "1.0.7"
+version = "1.0.8"
 edition = "2024"
 license = "MIT"
 keywords = ["argument", "cli", "arg", "parser", "parse"]

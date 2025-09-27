@@ -437,7 +437,7 @@ impl RevparseInt {
                     NoShort { long, .. } | Neither { long, .. } => (long, None),
                     _ => panic!("{}", IMPOSSIBLE_ERROR),
                 };
-                let long_str = format!("--{}", long.to_string().replace('_', "-"));
+                let long_str = format!("--{}", long.unraw().to_string().replace('_', "-"));
                 if let Some(short) = short {
                     quote! {
                         inner.hashmap_long.insert(#long_str, &mut_rvp.#long);
