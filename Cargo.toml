@@ -1,11 +1,11 @@
 [package]
 name = "revparse_derive"
-version = "1.0.8"
+version = "1.0.9"
 edition = "2024"
 license = "MIT"
 keywords = ["argument", "cli", "arg", "parser", "parse"]
 categories = ["command-line-interface"]
-description = "Dependency of [revparse](https://crates.io/crates/revparse), a fast simple Command Line Argument Parser, with GNU error messages."
+description = "Dependency of revparse, a fast simple Command Line Argument Parser, with GNU error messages."
 repository = "https://github.com/revellan/revparse_derive"
 homepage = "https://revparse.revellan.com"
 readme = "README.md"
